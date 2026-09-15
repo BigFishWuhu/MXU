@@ -7,6 +7,7 @@ mod web_server;
 pub mod ws_broadcast;
 
 use commands::{AppConfigState, MaaState};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -74,6 +75,22 @@ pub fn run() {
                 Err(e) => {
                     log::warn!("AppConfigState: could not get exe dir: {}", e);
                 }
+            }
+
+            // 项目 interface.json 加载完成后立即启动其声明的后台服务。
+            // 这些进程由 MaaState 持有，并在 MXU 退出时统一回收。
+            let startup_interface = app_config
+                .project_interface
+                .lock()
+                .ok()
+                .and_then(|interface| interface.clone());
+            let startup_base_path = app_config
+                .base_path
+                .lock()
+                .ok()
+                .map(|path| PathBuf::from(path.as_str()));
+            if let (Some(interface), Some(base_path)) = (startup_interface, startup_base_path) {
+                commands::system::start_project_startup(&interface, &base_path, &maa_state);
             }
 
             // 加载配置文件
@@ -339,9 +356,12 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
+        .run(|app_handle, event| {
             // 退出前收尾遥测（结束 Session 与悬挂 Transaction 并 flush）
             if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(state) = app_handle.try_state::<Arc<MaaState>>() {
+                    state.cleanup_all_agent_children();
+                }
                 commands::telemetry::on_app_exit();
             }
         });

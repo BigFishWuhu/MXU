@@ -35,6 +35,8 @@ export interface ProjectInterface {
   preset?: PresetItem[];
   /** v2.7.0: Controller 启动前执行的预任务声明 */
   pretask?: PretaskItem | PretaskItem[];
+  /** MXU 扩展：加载项目后立即启动的后台进程 */
+  startup?: StartupItem | StartupItem[];
   /** v2.9.0: 匿名遥测（数据埋点）配置容器 */
   telemetry?: TelemetryConfig;
 }
@@ -85,6 +87,20 @@ export interface PretaskItem {
   icon?: string;
   /** 可选。引用的顶层 option 键名数组，其取值序列化为最后一个参数 */
   option?: string[];
+}
+
+/** MXU 扩展：项目启动时运行的后台进程声明。 */
+export interface StartupItem {
+  /** 要执行的程序路径，可以是系统 PATH 中的可执行文件 */
+  exec: string;
+  /** 固定参数数组 */
+  args?: string[];
+  /** 工作目录，相对于 interface.json 所在目录；缺省为项目目录 */
+  cwd?: string;
+  /** 可选显示/日志标识 */
+  name?: string;
+  /** 是否启用，缺省为 true */
+  enabled?: boolean;
 }
 
 /**

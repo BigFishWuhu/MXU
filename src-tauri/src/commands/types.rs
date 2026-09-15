@@ -364,11 +364,25 @@ pub struct MaaState {
     pub log_buffer: Mutex<LogBuffer>,
     /// 后端统一截图服务（确保每实例只有一份 post_screencap 在运行）
     pub screenshot_service: crate::screenshot_service::ScreenshotService,
+    /// 项目启动时创建的后台进程（随 MXU 退出回收）
+    pub startup_children: Mutex<Vec<Child>>,
 }
 
 impl MaaState {
+    /// 清理项目 startup 声明启动的后台进程。
+    pub fn cleanup_startup_children(&self) {
+        if let Ok(mut children) = self.startup_children.lock() {
+            for mut child in children.drain(..) {
+                log::info!("Killing project startup process");
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
     /// 清理所有实例的 agent 子进程
     pub fn cleanup_all_agent_children(&self) {
+        self.cleanup_startup_children();
         if let Ok(mut instances) = self.instances.lock() {
             for (id, instance) in instances.iter_mut() {
                 for mut child in instance.agent_children.drain(..) {

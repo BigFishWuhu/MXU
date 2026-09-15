@@ -10,6 +10,8 @@ use clap::Parser;
 use log::info;
 #[cfg(windows)]
 use log::warn;
+use std::path::Path;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -705,6 +707,141 @@ pub async fn run_pretask(
         }
 
         sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// 启动项目 interface.json 中声明的后台进程。
+///
+/// `startup` 可为单个对象或对象数组。每个进程都由 MXU 持有其 `Child` 句柄，
+/// 在应用退出时统一回收；单个进程启动失败只记录日志，不阻止 MXU 继续启动。
+pub fn start_project_startup(
+    interface: &serde_json::Value,
+    base_path: &Path,
+    maa_state: &Arc<MaaState>,
+) {
+    let Some(startup) = interface.get("startup") else {
+        return;
+    };
+
+    let items: Vec<&serde_json::Value> = match startup {
+        serde_json::Value::Object(_) => vec![startup],
+        serde_json::Value::Array(items) => items.iter().collect(),
+        _ => {
+            log::warn!("[startup] startup 配置必须是对象或数组，已跳过");
+            return;
+        }
+    };
+
+    for (index, item) in items.iter().enumerate() {
+        let Some(object) = item.as_object() else {
+            log::warn!("[startup#{}] 配置项不是对象，已跳过", index + 1);
+            continue;
+        };
+
+        if object
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        {
+            log::info!("[startup#{}] 已禁用，跳过", index + 1);
+            continue;
+        }
+
+        let exec = object
+            .get("exec")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if exec.is_empty() {
+            log::warn!("[startup#{}] exec 为空，已跳过", index + 1);
+            continue;
+        }
+
+        let args: Vec<String> = object
+            .get("args")
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let cwd = object
+            .get("cwd")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                let path = Path::new(value);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    base_path.join(path)
+                }
+            })
+            .unwrap_or_else(|| base_path.to_path_buf());
+        let cwd_string = cwd.to_string_lossy().into_owned();
+        let resolved_exec = super::maa_agent::resolve_child_exec_path(exec, &cwd_string);
+        let display_name = object
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(exec);
+
+        let mut command = super::utils::build_launch_command(
+            &resolved_exec.to_string_lossy(),
+            &args,
+            false,
+        );
+        command
+            .current_dir(&cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        // Python/Node 等裸命令在 Windows 下直接启动时仍可能弹出控制台窗口，
+        // 后台服务必须使用无窗口标志运行。
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        log::info!(
+            "[startup] 启动 {}: {:?} {:?} (cwd={:?})",
+            display_name,
+            resolved_exec,
+            args,
+            cwd
+        );
+
+        match command.spawn() {
+            Ok(child) => match maa_state.startup_children.lock() {
+                Ok(mut children) => children.push(child),
+                Err(error) => {
+                    log::error!(
+                        "[startup] 无法保存 {} 的进程句柄，进程将被回收: {}",
+                        display_name,
+                        error
+                    );
+                    let mut child = child;
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            },
+            Err(error) => {
+                log::warn!(
+                    "[startup] 启动 {} 失败 (exec={:?}, cwd={:?}): {}",
+                    display_name,
+                    resolved_exec,
+                    cwd,
+                    error
+                );
+            }
+        }
     }
 }
 

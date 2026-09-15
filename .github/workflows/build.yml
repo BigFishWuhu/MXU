@@ -56,7 +56,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [x86_64]
       fail-fast: false
 
     steps:
@@ -120,6 +120,7 @@ jobs:
           path: "install"
 
   linux:
+    if: false
     needs: meta
     runs-on: ubuntu-latest
     strategy:
@@ -188,6 +189,7 @@ jobs:
           path: "MXU-linux-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.tar.gz"
 
   macos:
+    if: false
     needs: meta
     runs-on: macos-latest
     strategy:
@@ -276,7 +278,7 @@ jobs:
 
   release:
     if: ${{ needs.meta.outputs.is-release == 'true' }}
-    needs: [meta, windows, linux, macos, changelog]
+    needs: [meta, windows, changelog]
     runs-on: ubuntu-latest
     permissions:
       contents: write

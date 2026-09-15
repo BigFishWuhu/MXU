@@ -284,27 +284,24 @@ jobs:
       contents: write
 
     steps:
-      - name: Download all artifacts
+      - name: Download Windows x86_64 artifact
         uses: actions/download-artifact@v6
         with:
           path: artifacts
+          pattern: MXU-win-x86_64-${{ needs.meta.outputs.tag }}
+          merge-multiple: true
 
-      - name: Package artifacts
+      - name: Package Windows x86_64 artifact
         run: |
-          cd artifacts
-          for dir in */; do
-            name="${dir%/}"
-            cd "$name"
-            # Linux and macOS artifacts are already tgz files, just move them
-            if ls *.tar.gz 1> /dev/null 2>&1; then
-              mv *.tar.gz ../
-            else
-              # Windows artifacts need to be zipped
-              zip -r "../${name}.zip" .
+          test -f artifacts/mxu.exe
+          files=(artifacts/mxu.exe)
+          for optional in artifacts/mxu.pdb artifacts/LICENSE artifacts/README.md; do
+            if test -f "$optional"; then
+              files+=("$optional")
             fi
-            cd ..
           done
-          ls -la
+          zip -j "artifacts/MXU-win-x86_64-${{ needs.meta.outputs.tag }}.zip" "${files[@]}"
+          ls -la artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

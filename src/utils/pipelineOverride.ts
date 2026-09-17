@@ -623,7 +623,12 @@ export const generateTaskPipelineOverride = (
     }
   }
 
-  return JSON.stringify(overrides);
+  if (overrides.length === 0) return '[]';
+
+  // MaaFramework replaces same-name node fields instead of recursively merging
+  // them. Merge all option contributions here so independent options targeting
+  // custom_action_param do not erase one another.
+  return JSON.stringify([deepMergeObjects(...overrides)]);
 };
 
 /**

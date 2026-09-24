@@ -60,6 +60,7 @@ export function LogsPanel() {
   // 获取当前实例的日志
   const logs = activeInstanceId ? instanceLogs[activeInstanceId] || [] : [];
   const visibleLogs = useMemo(() => logs.slice(-visibleLogLimit), [logs, visibleLogLimit]);
+  const lastVisibleLogId = visibleLogs[visibleLogs.length - 1]?.id;
   const canShowMoreLogs =
     visibleLogLimit === DEFAULT_VISIBLE_LOG_LIMIT &&
     visibleLogs.length === DEFAULT_VISIBLE_LOG_LIMIT;
@@ -74,7 +75,7 @@ export function LogsPanel() {
     if (!isFollowingTailRef.current) return;
 
     logsEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [logs.length, visibleLogLimit]);
+  }, [lastVisibleLogId, visibleLogLimit]);
 
   const handleLogsScroll = useCallback(() => {
     const el = logsContainerRef.current;
